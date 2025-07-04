@@ -18,6 +18,13 @@ const App = () => {
   const [frequencyDifference, setFrequencyDifference] = useState(0);
   const [tunerMessage, setTunerMessage] = useState('Connect your mic to begin!');
   const [isTunerActive, setIsTunerActive] = useState(false);
+
+  // --- AI Voice-to-Chord State ---
+  const [voiceToChordMessage, setVoiceToChordMessage] = useState('Connect your mic to begin!');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedMelody, setRecordedMelody] = useState([]);
+  const [aiChordSuggestions, setAiChordSuggestions] = useState('Your AI-generated chords will appear here.');
+  const [isAiMelodyLoading, setIsAiMelodyLoading] = useState(false);
   
   // --- AI Chord Buddy State ---
   const [inputChords, setInputChords] = useState('');
@@ -97,7 +104,7 @@ const App = () => {
     { name: 'A#5/Bb5', frequency: 932.328 }, { name: 'B5', frequency: 987.767 }, { name: 'C6', frequency: 1046.502 },
   ].sort((a, b) => a.frequency - b.frequency); 
 
-  const getClosestNoteObject = (frequency) => {
+  const getClosestNoteObject = useCallback((frequency) => {
     let closestNote = null;
     let minDifference = Infinity;
     for (const note of notes) {
@@ -108,7 +115,7 @@ const App = () => {
       }
     }
     return closestNote;
-  };
+  }, []);
 
   const calculatePitchHPS = useCallback((spectrum, sampleRate) => {
       if (!analyserRef.current) return 0;
@@ -169,7 +176,7 @@ const App = () => {
       }
     }
     animationFrameId.current = requestAnimationFrame(audioProcessLoop);
-  }, [calculatePitchHPS, isTunerActive]);
+  }, [calculatePitchHPS, isTunerActive, getClosestNoteObject]);
   
   const stopAudioProcessing = useCallback(async () => {
     if (animationFrameId.current) {
