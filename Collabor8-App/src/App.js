@@ -290,7 +290,6 @@ const GuitarTuner = () => {
     );
 };
 
-
 // Main App component
 const App = () => {
   // --- UI State ---
@@ -765,5 +764,6 @@ const App = () => {
     </div>
   );
 };
+
 
 export default App;
