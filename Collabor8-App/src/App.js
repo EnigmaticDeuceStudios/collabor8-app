@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // --- Tone.js Audio Library ---
 // This script is necessary for the synthesizer to function.
@@ -117,12 +117,11 @@ const App = () => {
     return closestNote;
   };
 
-  // --- Harmonic Product Spectrum Pitch Detection ---
-  const calculatePitchHPS = (spectrum, sampleRate) => {
+  const calculatePitchHPS = useCallback((spectrum, sampleRate) => {
       if (!analyserRef.current) return 0;
-      const MIN_FREQ = 80; // E2 on a guitar
-      const MAX_FREQ = 1320; // E6 on a guitar
-      const HPS_COUNT = 5; // How many harmonics to check
+      const MIN_FREQ = 80;
+      const MAX_FREQ = 1320;
+      const HPS_COUNT = 5;
 
       const product = new Float32Array(spectrum.length).fill(0);
       for (let i = 0; i < spectrum.length; i++) {
@@ -153,9 +152,9 @@ const App = () => {
       }
 
       return maxIndex * (sampleRate / analyserRef.current.fftSize);
-  };
+  }, []);
 
-  const audioProcessLoop = () => {
+  const audioProcessLoop = useCallback(() => {
     if (!analyserRef.current || !audioContextRef.current) return;
 
     const bufferLength = analyserRef.current.frequencyBinCount;
@@ -176,86 +175,10 @@ const App = () => {
         setCurrentNote('...');
       }
     }
-
-    if (isRecording) {
-        if (pitch > 0) {
-            const closestMelodyNote = getClosestNoteObject(pitch);
-            if (closestMelodyNote) {
-                const noteName = closestMelodyNote.name.split('/')[0].replace(/\d/g, '');
-                setRecordedMelody(prev => {
-                    if (prev.length === 0 || prev[prev.length - 1] !== noteName) {
-                       return [...prev, noteName];
-                    }
-                    return prev;
-                });
-            }
-        }
-    }
-
     animationFrameId.current = requestAnimationFrame(audioProcessLoop);
-  };
+  }, [calculatePitchHPS, isTunerActive]);
   
-  const connectMicrophone = async () => {
-      try {
-          await navigator.mediaDevices.getUserMedia({ audio: true }); 
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const audioInputs = devices.filter(device => device.kind === 'audioinput');
-          setAudioDevices(audioInputs);
-          if (audioInputs.length > 0 && !selectedDeviceId) {
-              setSelectedDeviceId(audioInputs[0].deviceId);
-          }
-           setMicPermission('granted');
-           setTunerMessage('Mic connected! Press Start Tuner.');
-           setVoiceToChordMessage('Mic connected! Press Record Melody.');
-           return true;
-      } catch (err) {
-          console.error("Could not enumerate devices:", err);
-          setMicPermission('denied');
-          setTunerMessage('Microphone access denied. Please check browser permissions.');
-          setVoiceToChordMessage('Microphone access denied. Please check browser permissions.');
-          return false;
-      }
-  };
-
-  const startAudioProcessing = async (mode) => {
-    await stopAudioProcessing(); 
-    
-    try {
-      const constraints = { audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 4096; 
-      
-      lowPassFilterRef.current = audioContextRef.current.createBiquadFilter();
-      lowPassFilterRef.current.type = 'lowpass';
-      lowPassFilterRef.current.frequency.setValueAtTime(1500, audioContextRef.current.currentTime); 
-      
-      microphoneRef.current.connect(lowPassFilterRef.current);
-      lowPassFilterRef.current.connect(analyserRef.current);
-
-      if (mode === 'tuner') {
-        setTunerMessage('Listening...');
-        setIsTunerActive(true);
-      } else if (mode === 'voiceToChord') {
-        setVoiceToChordMessage('Recording... Sing your melody!');
-        setRecordedMelody([]);
-        setAiChordSuggestions('Your AI-generated chords will appear here.');
-        setIsRecording(true);
-      }
-      
-      audioProcessLoop();
-    } catch (err) {
-      console.error('Error starting audio:', err);
-      setMicPermission('denied');
-      if (mode === 'tuner') setTunerMessage('Microphone access denied. Please check permissions.');
-      else if (mode === 'voiceToChord') setVoiceToChordMessage('Microphone access denied. Please check permissions.');
-    }
-  };
-
-  const stopAudioProcessing = async () => {
+  const stopAudioProcessing = useCallback(async () => {
     if (animationFrameId.current) {
       cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = null;
@@ -278,25 +201,73 @@ const App = () => {
     setFrequencyDifference(0);
     if(micPermission === 'granted') {
         setTunerMessage('Tuner stopped. Tap "Start Tuner" to begin!');
-        setVoiceToChordMessage('Ready to record a new melody!');
     }
     setIsTunerActive(false);
-    setIsRecording(false);
+  }, [micPermission]);
+
+  const startAudioProcessing = useCallback(async (mode) => {
+    await stopAudioProcessing(); 
+    
+    try {
+      const constraints = { audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 4096; 
+      
+      lowPassFilterRef.current = audioContextRef.current.createBiquadFilter();
+      lowPassFilterRef.current.type = 'lowpass';
+      lowPassFilterRef.current.frequency.setValueAtTime(1500, audioContextRef.current.currentTime); 
+      
+      microphoneRef.current.connect(lowPassFilterRef.current);
+      lowPassFilterRef.current.connect(analyserRef.current);
+
+      if (mode === 'tuner') {
+        setTunerMessage('Listening...');
+        setIsTunerActive(true);
+      }
+      
+      audioProcessLoop();
+    } catch (err) {
+      console.error('Error starting audio:', err);
+      setMicPermission('denied');
+      if (mode === 'tuner') setTunerMessage('Microphone access denied. Please check permissions.');
+    }
+  }, [selectedDeviceId, stopAudioProcessing, audioProcessLoop]);
+
+  const connectMicrophone = async () => {
+      try {
+          await navigator.mediaDevices.getUserMedia({ audio: true }); 
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const audioInputs = devices.filter(device => device.kind === 'audioinput');
+          setAudioDevices(audioInputs);
+          if (audioInputs.length > 0 && !selectedDeviceId) {
+              setSelectedDeviceId(audioInputs[0].deviceId);
+          }
+           setMicPermission('granted');
+           setTunerMessage('Mic connected! Press Start Tuner.');
+           return true;
+      } catch (err) {
+          console.error("Could not enumerate devices:", err);
+          setMicPermission('denied');
+          setTunerMessage('Microphone access denied. Please check browser permissions.');
+          return false;
+      }
   };
 
   useEffect(() => {
     return () => { stopAudioProcessing(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stopAudioProcessing]);
   
   useEffect(() => {
     if (isInitialMount.current) {
         isInitialMount.current = false;
         return;
     }
-    if ((isTunerActive || isRecording) && selectedDeviceId) {
-        const currentMode = isTunerActive ? 'tuner' : 'voiceToChord';
-        startAudioProcessing(currentMode);
+    if (isTunerActive && selectedDeviceId) {
+        startAudioProcessing('tuner');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDeviceId]);
