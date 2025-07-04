@@ -202,7 +202,7 @@ const GuitarTuner = () => {
             setMicPermission('denied');
             setTunerMessage('Microphone access denied. Please check permissions.');
         }
-    }, [selectedDeviceId, stopAudioProcessing, audioProcessLoop]);
+    }, [selectedDeviceId, stopAudioProcessing, audioProcessLoop, isTunerActive]);
 
     const connectMicrophone = async () => {
         try {
