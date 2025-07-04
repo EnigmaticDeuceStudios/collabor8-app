@@ -18,13 +18,6 @@ const App = () => {
   const [frequencyDifference, setFrequencyDifference] = useState(0);
   const [tunerMessage, setTunerMessage] = useState('Connect your mic to begin!');
   const [isTunerActive, setIsTunerActive] = useState(false);
-
-  // --- AI Voice-to-Chord State ---
-  const [voiceToChordMessage, setVoiceToChordMessage] = useState('Connect your mic to begin!');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedMelody, setRecordedMelody] = useState([]);
-  const [aiChordSuggestions, setAiChordSuggestions] = useState('Your AI-generated chords will appear here.');
-  const [isAiMelodyLoading, setIsAiMelodyLoading] = useState(false);
   
   // --- AI Chord Buddy State ---
   const [inputChords, setInputChords] = useState('');
@@ -321,18 +314,6 @@ const App = () => {
     getAiSuggestionsFromAPI(prompt, setIsAiChordLoading, setAiChordBuddySuggestions);
   };
 
-  const getChordsForMelody = () => {
-      stopAudioProcessing();
-      if (recordedMelody.length < 3) {
-          setAiChordSuggestions("Melody was too short! Please sing at least a few notes.");
-          return;
-      }
-      const uniqueMelody = recordedMelody.filter((note, index) => note !== recordedMelody[index - 1]);
-      const melodyString = uniqueMelody.join(', ');
-      const prompt = `I sang a melody. The sequence of detected notes is: [${melodyString}]. Analyze this melody and suggest a fitting 4-chord progression that would sound good underneath it. Explain why the progression works in a brief, easy-going tone.`;
-      getAiSuggestionsFromAPI(prompt, setIsAiMelodyLoading, setAiChordSuggestions);
-  }
-
   const getAiInspiration = () => {
     if (!inspirationTheme.trim()) {
         setAiInspiration('Please provide a theme or mood first.');
@@ -523,7 +504,6 @@ const App = () => {
             onChange={handleModeChange}
           >
             <option value="noteTuner">Guitar Tuner</option>
-            <option value="voiceToChord">✨ AI Voice to Chord</option>
             <option value="aiChordBuddy">✨ AI Chord Buddy</option>
             <option value="aiInspiration">✨ AI Inspiration</option>
             <option value="aiRefiner">✨ Collabor8's Feedback</option>
@@ -532,7 +512,7 @@ const App = () => {
         </div>
 
         {/* --- Microphone Selection --- */}
-        { (selectedMode === 'noteTuner' || selectedMode === 'voiceToChord') && micPermission === 'granted' && (
+        { selectedMode === 'noteTuner' && micPermission === 'granted' && (
             <div className="my-4">
                 <label htmlFor="mic-select" className="block text-lg mb-2 text-yellow-300">Select Mic:</label>
                 <select id="mic-select" value={selectedDeviceId} onChange={(e) => setSelectedDeviceId(e.target.value)} className="pixel-select">
@@ -576,36 +556,6 @@ const App = () => {
               )}
             </div>
             {micPermission === 'denied' && <button onClick={() => connectMicrophone()} className="mt-4 text-blue-400 underline">Retry Mic Connection</button>}
-          </div>
-        )}
-
-        {selectedMode === 'voiceToChord' && (
-          <div className="mb-10 p-6 pixel-box">
-            <h2 className="text-3xl font-press-start mb-4 text-green-400 drop-shadow-[0_0_6px_rgba(0,255,0,0.7)]">
-              AI Voice to Chord
-            </h2>
-            <p className="text-lg text-gray-300 mb-2">
-              {voiceToChordMessage}
-            </p>
-            
-            <div className="flex justify-center space-x-4 mt-6">
-              {micPermission === 'granted' ? (
-                !isRecording ? (
-                  <button onClick={() => startAudioProcessing('voiceToChord')} disabled={isAiMelodyLoading} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Record Melody</button>
-                ) : (
-                  <button onClick={getChordsForMelody} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button" style={{ backgroundColor: '#ff0000', boxShadow: '3px 3px 0 #aa0000, 5px 5px 0 #550000' }}>Stop & Get Chords</button>
-                )
-              ) : (
-                 <button onClick={connectMicrophone} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Connect Microphone</button>
-              )}
-            </div>
-             {micPermission === 'denied' && <button onClick={() => connectMicrophone()} className="mt-4 text-blue-400 underline">Retry Mic Connection</button>}
-
-
-            <div className="mt-6 p-4 pixel-box text-left whitespace-pre-wrap">
-              <h3 className="text-xl font-press-start mb-2 text-cyan-300">Collabor8's Chord Suggestions:</h3>
-              <ClickableChordSuggestion text={isAiMelodyLoading ? "Collabor8 is thinking..." : aiChordSuggestions} synthRef={synthRef} />
-            </div>
           </div>
         )}
 
