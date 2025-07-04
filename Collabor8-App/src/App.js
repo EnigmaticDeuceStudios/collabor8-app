@@ -15,8 +15,6 @@ const App = () => {
 
   // --- Tuner State ---
   const [currentNote, setCurrentNote] = useState('...');
-  const [currentFrequency, setCurrentFrequency] = useState(0);
-  const [targetFrequency, setTargetFrequency] = useState(0);
   const [frequencyDifference, setFrequencyDifference] = useState(0);
   const [tunerMessage, setTunerMessage] = useState('Connect your mic to begin!');
   const [isTunerActive, setIsTunerActive] = useState(false);
@@ -33,8 +31,6 @@ const App = () => {
   const [songPart, setSongPart] = useState('Chorus'); 
   const [aiChordBuddySuggestions, setAiChordBuddySuggestions] = useState('Your AI suggestions will appear here.');
   const [isAiChordLoading, setIsAiChordLoading] = useState(false);
-  const [aiImage, setAiImage] = useState('');
-  const [isImageLoading, setIsImageLoading] = useState(false);
 
   // --- AI Inspiration State ---
   const [inspirationTheme, setInspirationTheme] = useState('');
@@ -123,6 +119,7 @@ const App = () => {
 
   // --- Harmonic Product Spectrum Pitch Detection ---
   const calculatePitchHPS = (spectrum, sampleRate) => {
+      if (!analyserRef.current) return 0;
       const MIN_FREQ = 80; // E2 on a guitar
       const MAX_FREQ = 1320; // E6 on a guitar
       const HPS_COUNT = 5; // How many harmonics to check
@@ -171,16 +168,12 @@ const App = () => {
     if (isTunerActive) {
       if (pitch > 0) {
         const closest = getClosestNoteObject(pitch);
-        setCurrentFrequency(pitch);
         if (closest) {
           setCurrentNote(closest.name);
-          setTargetFrequency(closest.frequency);
           setFrequencyDifference(pitch - closest.frequency);
-          setTunerMessage(`Playing ${closest.name}`);
         }
       } else {
         setCurrentNote('...');
-        setTunerMessage('Listening...');
       }
     }
 
@@ -282,8 +275,6 @@ const App = () => {
       analyserRef.current = null;
     }
     setCurrentNote('...');
-    setCurrentFrequency(0);
-    setTargetFrequency(0);
     setFrequencyDifference(0);
     if(micPermission === 'granted') {
         setTunerMessage('Tuner stopped. Tap "Start Tuner" to begin!');
@@ -295,6 +286,7 @@ const App = () => {
 
   useEffect(() => {
     return () => { stopAudioProcessing(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   useEffect(() => {
