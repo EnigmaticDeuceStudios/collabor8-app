@@ -8,23 +8,293 @@ toneScript.async = true;
 document.head.appendChild(toneScript);
 
 
+// --- Helper Component for Clickable Chords ---
+const ClickableChordSuggestion = ({ text, synthRef }) => {
+    const chordRegex = /\b([A-G][b#]?(m|maj|min|dim|aug|sus|add)?[2-9]?)\b/g;
+    const parts = text ? text.split(chordRegex) : [];
+
+    const getChordNotes = (chordName) => {
+        const root = chordName.match(/^[A-G][b#]?/)[0];
+        const quality = chordName.replace(root, '');
+        const octave = 4;
+        
+        const noteMap = {
+            'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
+        };
+        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        
+        const rootIndex = noteMap[root];
+        if (rootIndex === undefined) return null;
+
+        let intervals;
+        if (quality.startsWith('m') && !quality.startsWith('maj')) { // minor
+            intervals = [0, 3, 7];
+        } else if (quality.includes('7')) { // dominant 7th
+             intervals = [0, 4, 7, 10];
+        } else { // major
+            intervals = [0, 4, 7];
+        }
+
+        return intervals.map(i => notes[(rootIndex + i) % 12] + octave);
+    };
+
+    const playChord = async (chord) => {
+        if (!synthRef.current) return;
+        if (window.Tone.context.state !== 'running') {
+            await window.Tone.start();
+        }
+        const notes = getChordNotes(chord);
+        if (notes) {
+            synthRef.current.triggerAttackRelease(notes, "1s");
+        }
+    };
+
+    return (
+        <p className="text-lg text-gray-200">
+            {parts.map((part, index) => {
+                if (index % 3 === 1 && part) { // It's a chord
+                    return (
+                        <button key={index} onClick={() => playChord(part)} className="bg-lime-800 text-lime-300 px-2 py-1 rounded-md mx-1 hover:bg-lime-700 transition-colors">
+                            {part}
+                        </button>
+                    );
+                }
+                return <span key={index}>{part}</span>;
+            })}
+        </p>
+    );
+};
+
+const GuitarTuner = () => {
+    const [currentNote, setCurrentNote] = useState('...');
+    const [frequencyDifference, setFrequencyDifference] = useState(0);
+    const [tunerMessage, setTunerMessage] = useState('Connect your mic to begin!');
+    const [isTunerActive, setIsTunerActive] = useState(false);
+    const [audioDevices, setAudioDevices] = useState([]);
+    const [selectedDeviceId, setSelectedDeviceId] = useState('');
+    const [micPermission, setMicPermission] = useState('prompt');
+
+    const animationFrameId = useRef(null);
+    const audioContextRef = useRef(null);
+    const analyserRef = useRef(null);
+    const microphoneRef = useRef(null);
+    const lowPassFilterRef = useRef(null);
+    const isInitialMount = useRef(true);
+
+    const notes = [
+        { name: 'E2', frequency: 82.41 }, { name: 'F2', frequency: 87.31 }, { name: 'F#2', frequency: 92.50 },
+        { name: 'G2', frequency: 98.00 }, { name: 'G#2', frequency: 103.83 }, { name: 'A2', frequency: 110.00 },
+        { name: 'A#2', frequency: 116.54 }, { name: 'B2', frequency: 123.47 }, { name: 'C3', frequency: 130.81 },
+        { name: 'C#3', frequency: 138.59 }, { name: 'D3', frequency: 146.83 }, { name: 'D#3', frequency: 155.56 },
+        { name: 'E3', frequency: 164.81 }, { name: 'F3', frequency: 174.61 }, { name: 'F#3', frequency: 185.00 },
+        { name: 'G3', frequency: 196.00 }, { name: 'G#3', frequency: 207.65 }, { name: 'A3', frequency: 220.00 },
+        { name: 'A#3', frequency: 233.08 }, { name: 'B3', frequency: 246.94 }, { name: 'C4', frequency: 261.63 },
+        { name: 'C#4', frequency: 277.18 }, { name: 'D4', frequency: 293.66 }, { name: 'D#4', frequency: 311.13 },
+        { name: 'E4', frequency: 329.63 }, { name: 'F4', frequency: 349.23 }, { name: 'F#4', frequency: 369.99 },
+        { name: 'G4', frequency: 392.00 }, { name: 'G#4', frequency: 415.30 }, { name: 'A4', frequency: 440.00 },
+        { name: 'A#4', frequency: 466.16 }, { name: 'B4', frequency: 493.88 }, { name: 'C5', frequency: 523.25 },
+    ].sort((a, b) => a.frequency - b.frequency);
+
+    const getClosestNote = useCallback((frequency) => {
+        return notes.reduce((prev, curr) =>
+            (Math.abs(curr.frequency - frequency) < Math.abs(prev.frequency - frequency) ? curr : prev)
+        );
+    }, [notes]);
+
+    const calculatePitch = useCallback((spectrum, sampleRate) => {
+        if (!analyserRef.current) return 0;
+        const MIN_FREQ = 80;
+        const MAX_FREQ = 1320;
+        const HPS_COUNT = 5;
+
+        const product = new Float32Array(spectrum.length).fill(0);
+        for (let i = 0; i < spectrum.length; i++) {
+            product[i] = spectrum[i];
+        }
+
+        for (let h = 2; h <= HPS_COUNT; h++) {
+            for (let i = 0; i < spectrum.length / h; i++) {
+                product[i] += spectrum[i * h];
+            }
+        }
+
+        let maxVal = -Infinity;
+        let maxIndex = -1;
+        const minIndex = Math.floor(MIN_FREQ / (sampleRate / analyserRef.current.fftSize));
+        const maxIndexSearch = Math.floor(MAX_FREQ / (sampleRate / analyserRef.current.fftSize));
+
+        for (let i = minIndex; i < maxIndexSearch; i++) {
+            if (product[i] > maxVal) {
+                maxVal = product[i];
+                maxIndex = i;
+            }
+        }
+
+        if (maxIndex === -1 || maxVal < -75) return 0;
+        return maxIndex * (sampleRate / analyserRef.current.fftSize);
+    }, []);
+
+    const audioProcessLoop = useCallback(() => {
+        if (!analyserRef.current || !audioContextRef.current) return;
+        const bufferLength = analyserRef.current.frequencyBinCount;
+        const freqData = new Float32Array(bufferLength);
+        analyserRef.current.getFloatFrequencyData(freqData);
+        const pitch = calculatePitch(freqData, audioContextRef.current.sampleRate);
+
+        if (pitch > 0) {
+            const note = getClosestNote(pitch);
+            if (note) {
+                setCurrentNote(note.name);
+                setFrequencyDifference(pitch - note.frequency);
+            }
+        } else {
+            setCurrentNote('...');
+        }
+        animationFrameId.current = requestAnimationFrame(audioProcessLoop);
+    }, [calculatePitch, getClosestNote]);
+
+    const stopAudioProcessing = useCallback(async () => {
+        if (animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = null;
+        }
+        if (microphoneRef.current) {
+            microphoneRef.current.mediaStream.getTracks().forEach(track => track.stop());
+            microphoneRef.current.disconnect();
+            microphoneRef.current = null;
+        }
+        if (lowPassFilterRef.current) {
+            lowPassFilterRef.current.disconnect();
+            lowPassFilterRef.current = null;
+        }
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            await audioContextRef.current.close();
+            audioContextRef.current = null;
+            analyserRef.current = null;
+        }
+        setIsTunerActive(false);
+        if (micPermission === 'granted') {
+            setTunerMessage('Tuner stopped. Tap "Start Tuner" to begin!');
+        }
+    }, [micPermission]);
+
+    const startAudioProcessing = useCallback(async () => {
+        if (isTunerActive) return;
+        await stopAudioProcessing();
+
+        try {
+            const constraints = { audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
+            analyserRef.current = audioContextRef.current.createAnalyser();
+            analyserRef.current.fftSize = 4096;
+            lowPassFilterRef.current = audioContextRef.current.createBiquadFilter();
+            lowPassFilterRef.current.type = 'lowpass';
+            lowPassFilterRef.current.frequency.setValueAtTime(1500, audioContextRef.current.currentTime);
+            microphoneRef.current.connect(lowPassFilterRef.current);
+            lowPassFilterRef.current.connect(analyserRef.current);
+            setTunerMessage('Listening...');
+            setIsTunerActive(true);
+            audioProcessLoop();
+        } catch (err) {
+            console.error('Error starting audio:', err);
+            setMicPermission('denied');
+            setTunerMessage('Microphone access denied. Please check permissions.');
+        }
+    }, [selectedDeviceId, stopAudioProcessing, audioProcessLoop]);
+
+    const connectMicrophone = async () => {
+        try {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(device => device.kind === 'audioinput');
+            setAudioDevices(audioInputs);
+            if (audioInputs.length > 0 && !selectedDeviceId) {
+                setSelectedDeviceId(audioInputs[0].deviceId);
+            }
+            setMicPermission('granted');
+            setTunerMessage('Mic connected! Press Start Tuner.');
+        } catch (err) {
+            console.error("Could not get microphone permission:", err);
+            setMicPermission('denied');
+            setTunerMessage('Microphone access denied. Please check browser permissions.');
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            stopAudioProcessing();
+        };
+    }, [stopAudioProcessing]);
+
+    useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
+        if (isTunerActive && selectedDeviceId) {
+            startAudioProcessing();
+        }
+    }, [selectedDeviceId, isTunerActive, startAudioProcessing]);
+
+    const indicatorPosition = (frequencyDifference / 5) * 100;
+    const getIndicatorClass = () => {
+        const diff = Math.abs(frequencyDifference);
+        if (diff < 0.2) return 'perfect-tune';
+        if (diff < 0.8) return 'bg-green-500';
+        return 'bg-red-500';
+    };
+
+    return (
+        <div className="mb-10 p-6 pixel-box">
+            <h2 className="text-3xl font-press-start mb-4 text-pink-400 drop-shadow-[0_0_6px_rgba(255,0,255,0.7)]">
+                Guitar Tuner
+            </h2>
+            <p className="text-lg text-gray-300 mb-2">{tunerMessage}</p>
+            {micPermission === 'granted' && (
+                <div className="my-4">
+                    <label htmlFor="mic-select" className="block text-lg mb-2 text-yellow-300">Select Mic:</label>
+                    <select id="mic-select" value={selectedDeviceId} onChange={(e) => setSelectedDeviceId(e.target.value)} className="pixel-select">
+                        {audioDevices.map(device => (
+                            <option key={device.deviceId} value={device.deviceId}>{device.label || `Mic ${device.deviceId.substring(0, 6)}`}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
+            <p className="text-7xl font-bold mb-4 text-yellow-400 drop-shadow-[0_0_8px_rgba(255,255,0,0.7)]">
+                {currentNote}
+            </p>
+            {isTunerActive && (
+                <div className="w-full bg-gray-700 rounded-full h-4 mt-6 mb-8 relative overflow-hidden pixel-border">
+                    <div
+                        className={`absolute top-0 h-full w-2 rounded-full transform -translate-x-1/2 transition-all duration-100 ${getIndicatorClass()}`}
+                        style={{ left: `calc(50% + ${indicatorPosition}%)` }}
+                    ></div>
+                    <div className="absolute top-0 left-1/2 h-full w-0.5 bg-white transform -translate-x-1/2"></div>
+                </div>
+            )}
+            <div className="flex justify-center space-x-4 mt-6">
+                {micPermission === 'granted' ? (
+                    !isTunerActive ? (
+                        <button onClick={() => startAudioProcessing()} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Start Tuner</button>
+                    ) : (
+                        <button onClick={stopAudioProcessing} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button" style={{ backgroundColor: '#ff0000', boxShadow: '3px 3px 0 #aa0000, 5px 5px 0 #550000' }}>Stop Tuner</button>
+                    )
+                ) : (
+                    <button onClick={connectMicrophone} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Connect Microphone</button>
+                )}
+            </div>
+            {micPermission === 'denied' && <button onClick={() => connectMicrophone()} className="mt-4 text-blue-400 underline">Retry Mic Connection</button>}
+        </div>
+    );
+};
+
+
 // Main App component
 const App = () => {
   // --- UI State ---
   const [selectedMode, setSelectedMode] = useState('noteTuner');
-
-  // --- Tuner State ---
-  const [currentNote, setCurrentNote] = useState('...');
-  const [frequencyDifference, setFrequencyDifference] = useState(0);
-  const [tunerMessage, setTunerMessage] = useState('Connect your mic to begin!');
-  const [isTunerActive, setIsTunerActive] = useState(false);
-
-  // --- AI Voice-to-Chord State ---
-  const [voiceToChordMessage, setVoiceToChordMessage] = useState('Connect your mic to begin!');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedMelody, setRecordedMelody] = useState([]);
-  const [aiChordSuggestions, setAiChordSuggestions] = useState('Your AI-generated chords will appear here.');
-  const [isAiMelodyLoading, setIsAiMelodyLoading] = useState(false);
   
   // --- AI Chord Buddy State ---
   const [inputChords, setInputChords] = useState('');
@@ -53,18 +323,7 @@ const App = () => {
   const [discoveryResults, setDiscoveryResults] = useState('');
   const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
 
-
-  // --- Audio Processing Refs & State ---
-  const animationFrameId = useRef(null);
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const microphoneRef = useRef(null);
   const synthRef = useRef(null);
-  const [audioDevices, setAudioDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState('');
-  const [micPermission, setMicPermission] = useState('prompt'); // 'prompt', 'granted', 'denied'
-  const lowPassFilterRef = useRef(null);
-  const isInitialMount = useRef(true); 
 
   // --- Initialize Synthesizer ---
   useEffect(() => {
@@ -84,201 +343,6 @@ const App = () => {
         if(script) script.addEventListener('load', initializeSynth);
     }
   }, []);
-
-  // Define standard notes and their frequencies
-  const notes = [
-    { name: 'E2', frequency: 82.4069 }, { name: 'F2', frequency: 87.3071 }, { name: 'F#2/Gb2', frequency: 92.4986 },
-    { name: 'G2', frequency: 97.9989 }, { name: 'G#2/Ab2', frequency: 103.826 }, { name: 'A2', frequency: 110.000 },
-    { name: 'A#2/Bb2', frequency: 116.541 }, { name: 'B2', frequency: 123.471 }, { name: 'C3', frequency: 130.813 },
-    { name: 'C#3/Db3', frequency: 138.591 }, { name: 'D3', frequency: 146.832 }, { name: 'D#3/Eb3', frequency: 155.563 },
-    { name: 'E3', frequency: 164.814 }, { name: 'F3', frequency: 174.614 }, { name: 'F#3/Gb3', frequency: 184.997 },
-    { name: 'G3', frequency: 195.998 }, { name: 'G#3/Ab3', frequency: 207.652 }, { name: 'A3', frequency: 220.000 },
-    { name: 'A#3/Bb3', frequency: 233.082 }, { name: 'B3', frequency: 246.942 }, { name: 'C4', frequency: 261.626 },
-    { name: 'C#4/Db4', frequency: 277.183 }, { name: 'D4', frequency: 293.665 }, { name: 'D#4/Eb4', frequency: 311.127 },
-    { name: 'E4', frequency: 329.628 }, { name: 'F4', frequency: 349.228 }, { name: 'F#4/Gb4', frequency: 369.994 },
-    { name: 'G4', frequency: 391.995 }, { name: 'G#4/Ab4', frequency: 415.305 }, { name: 'A4', frequency: 440.000 },
-    { name: 'A#4/Bb4', frequency: 466.164 }, { name: 'B4', frequency: 493.883 }, { name: 'C5', frequency: 523.251 },
-    { name: 'C#5/Db5', frequency: 554.365 }, { name: 'D5', frequency: 587.330 }, { name: 'D#5/Eb5', frequency: 622.254 },
-    { name: 'E5', frequency: 659.255 }, { name: 'F5', frequency: 698.456 }, { name: 'F#5/Gb5', frequency: 739.989 },
-    { name: 'G5', frequency: 783.991 }, { name: 'G#5/Ab5', frequency: 830.609 }, { name: 'A5', frequency: 880.000 },
-    { name: 'A#5/Bb5', frequency: 932.328 }, { name: 'B5', frequency: 987.767 }, { name: 'C6', frequency: 1046.502 },
-  ].sort((a, b) => a.frequency - b.frequency); 
-
-  const getClosestNoteObject = useCallback((frequency) => {
-    let closestNote = null;
-    let minDifference = Infinity;
-    for (const note of notes) {
-      const diff = Math.abs(note.frequency - frequency);
-      if (diff < minDifference) {
-        minDifference = diff;
-        closestNote = note;
-      }
-    }
-    return closestNote;
-  }, []);
-
-  const calculatePitchHPS = useCallback((spectrum, sampleRate) => {
-      if (!analyserRef.current) return 0;
-      const MIN_FREQ = 80;
-      const MAX_FREQ = 1320;
-      const HPS_COUNT = 5;
-
-      const product = new Float32Array(spectrum.length).fill(0);
-      for (let i = 0; i < spectrum.length; i++) {
-          product[i] = spectrum[i];
-      }
-
-      for (let h = 2; h <= HPS_COUNT; h++) {
-          for (let i = 0; i < spectrum.length / h; i++) {
-              product[i] += spectrum[i * h];
-          }
-      }
-
-      let maxVal = -Infinity;
-      let maxIndex = -1;
-
-      const minIndex = Math.floor(MIN_FREQ / (sampleRate / analyserRef.current.fftSize));
-      const maxIndexSearch = Math.floor(MAX_FREQ / (sampleRate / analyserRef.current.fftSize));
-
-      for (let i = minIndex; i < maxIndexSearch; i++) {
-          if (product[i] > maxVal) {
-              maxVal = product[i];
-              maxIndex = i;
-          }
-      }
-
-      if (maxIndex === -1 || maxVal < -75) {
-          return 0;
-      }
-
-      return maxIndex * (sampleRate / analyserRef.current.fftSize);
-  }, []);
-
-  const audioProcessLoop = useCallback(() => {
-    if (!analyserRef.current || !audioContextRef.current) return;
-
-    const bufferLength = analyserRef.current.frequencyBinCount;
-    const freqData = new Float32Array(bufferLength);
-    analyserRef.current.getFloatFrequencyData(freqData);
-
-    const sampleRate = audioContextRef.current.sampleRate;
-    const pitch = calculatePitchHPS(freqData, sampleRate);
-
-    if (isTunerActive) {
-      if (pitch > 0) {
-        const closest = getClosestNoteObject(pitch);
-        if (closest) {
-          setCurrentNote(closest.name);
-          setFrequencyDifference(pitch - closest.frequency);
-        }
-      } else {
-        setCurrentNote('...');
-      }
-    }
-    animationFrameId.current = requestAnimationFrame(audioProcessLoop);
-  }, [calculatePitchHPS, isTunerActive, getClosestNoteObject]);
-  
-  const stopAudioProcessing = useCallback(async () => {
-    if (animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current);
-      animationFrameId.current = null;
-    }
-    if (microphoneRef.current) {
-      microphoneRef.current.mediaStream.getTracks().forEach(track => track.stop());
-      microphoneRef.current.disconnect();
-      microphoneRef.current = null;
-    }
-    if (lowPassFilterRef.current) {
-        lowPassFilterRef.current.disconnect();
-        lowPassFilterRef.current = null;
-    }
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      await audioContextRef.current.close();
-      audioContextRef.current = null;
-      analyserRef.current = null;
-    }
-    setCurrentNote('...');
-    setFrequencyDifference(0);
-    if(micPermission === 'granted') {
-        setTunerMessage('Tuner stopped. Tap "Start Tuner" to begin!');
-    }
-    setIsTunerActive(false);
-  }, [micPermission]);
-
-  const startAudioProcessing = useCallback(async (mode) => {
-    await stopAudioProcessing(); 
-    
-    try {
-      const constraints = { audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 4096; 
-      
-      lowPassFilterRef.current = audioContextRef.current.createBiquadFilter();
-      lowPassFilterRef.current.type = 'lowpass';
-      lowPassFilterRef.current.frequency.setValueAtTime(1500, audioContextRef.current.currentTime); 
-      
-      microphoneRef.current.connect(lowPassFilterRef.current);
-      lowPassFilterRef.current.connect(analyserRef.current);
-
-      if (mode === 'tuner') {
-        setTunerMessage('Listening...');
-        setIsTunerActive(true);
-      }
-      
-      audioProcessLoop();
-    } catch (err) {
-      console.error('Error starting audio:', err);
-      setMicPermission('denied');
-      if (mode === 'tuner') setTunerMessage('Microphone access denied. Please check permissions.');
-    }
-  }, [selectedDeviceId, stopAudioProcessing, audioProcessLoop]);
-
-  const connectMicrophone = async () => {
-      try {
-          await navigator.mediaDevices.getUserMedia({ audio: true }); 
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const audioInputs = devices.filter(device => device.kind === 'audioinput');
-          setAudioDevices(audioInputs);
-          if (audioInputs.length > 0 && !selectedDeviceId) {
-              setSelectedDeviceId(audioInputs[0].deviceId);
-          }
-           setMicPermission('granted');
-           setTunerMessage('Mic connected! Press Start Tuner.');
-           return true;
-      } catch (err) {
-          console.error("Could not enumerate devices:", err);
-          setMicPermission('denied');
-          setTunerMessage('Microphone access denied. Please check browser permissions.');
-          return false;
-      }
-  };
-
-  useEffect(() => {
-    return () => { stopAudioProcessing(); };
-  }, [stopAudioProcessing]);
-  
-  useEffect(() => {
-    if (isInitialMount.current) {
-        isInitialMount.current = false;
-        return;
-    }
-    if (isTunerActive && selectedDeviceId) {
-        startAudioProcessing('tuner');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeviceId]);
-
-  const indicatorPosition = (frequencyDifference / 5) * 100;
-  const getIndicatorClass = () => {
-      const diff = Math.abs(frequencyDifference);
-      if (diff < 0.2) return 'perfect-tune';
-      if (diff < 0.8) return 'bg-green-500';
-      return 'bg-red-500';
-  }
 
   const getAiSuggestionsFromAPI = async (prompt, setLoading, setSuggestions) => {
         setLoading(true);
@@ -414,10 +478,6 @@ const App = () => {
   }
 
   const handleModeChange = (event) => {
-    stopAudioProcessing(); 
-    setMicPermission('prompt');
-    setAudioDevices([]);
-    setSelectedDeviceId('');
     setSelectedMode(event.target.value);
   };
 
@@ -518,52 +578,9 @@ const App = () => {
           </select>
         </div>
 
-        {/* --- Microphone Selection --- */}
-        { selectedMode === 'noteTuner' && micPermission === 'granted' && (
-            <div className="my-4">
-                <label htmlFor="mic-select" className="block text-lg mb-2 text-yellow-300">Select Mic:</label>
-                <select id="mic-select" value={selectedDeviceId} onChange={(e) => setSelectedDeviceId(e.target.value)} className="pixel-select">
-                    {audioDevices.map(device => (
-                        <option key={device.deviceId} value={device.deviceId}>{device.label || `Mic ${device.deviceId.substring(0, 6)}`}</option>
-                    ))}
-                </select>
-            </div>
-        )}
-
         {/* --- Conditional Rendering based on selectedMode --- */}
         {selectedMode === 'noteTuner' && (
-          <div className="mb-10 p-6 pixel-box">
-            <h2 className="text-3xl font-press-start mb-4 text-pink-400 drop-shadow-[0_0_6px_rgba(255,0,255,0.7)]">
-              Guitar Tuner
-            </h2>
-            <p className="text-lg text-gray-300 mb-2">{tunerMessage}</p>
-            <p className="text-7xl font-bold mb-4 text-yellow-400 drop-shadow-[0_0_8px_rgba(255,255,0,0.7)]">
-              {currentNote}
-            </p>
-            
-            {isTunerActive && (
-              <div className="w-full bg-gray-700 rounded-full h-4 mt-6 mb-8 relative overflow-hidden pixel-border">
-                <div
-                  className={`absolute top-0 h-full w-2 rounded-full transform -translate-x-1/2 transition-all duration-100 ${getIndicatorClass()}`}
-                  style={{ left: `calc(50% + ${indicatorPosition}%)` }}
-                ></div>
-                <div className="absolute top-0 left-1/2 h-full w-0.5 bg-white transform -translate-x-1/2"></div>
-              </div>
-            )}
-
-            <div className="flex justify-center space-x-4 mt-6">
-              {micPermission === 'granted' ? (
-                !isTunerActive ? (
-                  <button onClick={() => startAudioProcessing('tuner')} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Start Tuner</button>
-                ) : (
-                  <button onClick={stopAudioProcessing} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button" style={{ backgroundColor: '#ff0000', boxShadow: '3px 3px 0 #aa0000, 5px 5px 0 #550000' }}>Stop Tuner</button>
-                )
-              ) : (
-                 <button onClick={connectMicrophone} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">Connect Microphone</button>
-              )}
-            </div>
-            {micPermission === 'denied' && <button onClick={() => connectMicrophone()} className="mt-4 text-blue-400 underline">Retry Mic Connection</button>}
-          </div>
+          <GuitarTuner />
         )}
 
         {selectedMode === 'aiChordBuddy' && (
@@ -748,63 +765,5 @@ const App = () => {
     </div>
   );
 };
-
-// --- Helper Component for Clickable Chords ---
-const ClickableChordSuggestion = ({ text, synthRef }) => {
-    const chordRegex = /\b([A-G][b#]?(m|maj|min|dim|aug|sus|add)?[2-9]?)\b/g;
-    const parts = text.split(chordRegex);
-
-    const getChordNotes = (chordName) => {
-        const root = chordName.match(/^[A-G][b#]?/)[0];
-        const quality = chordName.replace(root, '');
-        const octave = 4;
-        
-        const noteMap = {
-            'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
-        };
-        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-        
-        const rootIndex = noteMap[root];
-        if (rootIndex === undefined) return null;
-
-        let intervals;
-        if (quality.startsWith('m') && !quality.startsWith('maj')) { // minor
-            intervals = [0, 3, 7];
-        } else if (quality.includes('7')) { // dominant 7th
-             intervals = [0, 4, 7, 10];
-        } else { // major
-            intervals = [0, 4, 7];
-        }
-
-        return intervals.map(i => notes[(rootIndex + i) % 12] + octave);
-    };
-
-    const playChord = async (chord) => {
-        if (!synthRef.current) return;
-        if (window.Tone.context.state !== 'running') {
-            await window.Tone.start();
-        }
-        const notes = getChordNotes(chord);
-        if (notes) {
-            synthRef.current.triggerAttackRelease(notes, "1s");
-        }
-    };
-
-    return (
-        <p className="text-lg text-gray-200">
-            {parts.map((part, index) => {
-                if (index % 3 === 1) { // It's a chord
-                    return (
-                        <button key={index} onClick={() => playChord(part)} className="bg-lime-800 text-lime-300 px-2 py-1 rounded-md mx-1 hover:bg-lime-700 transition-colors">
-                            {part}
-                        </button>
-                    );
-                }
-                return <span key={index}>{part}</span>;
-            })}
-        </p>
-    );
-};
-
 
 export default App;
