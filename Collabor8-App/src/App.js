@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import './App.css';
+import './index.css'; // Import the main CSS file
 
 // --- Tone.js Audio Library ---
 const toneScript = document.createElement('script');
