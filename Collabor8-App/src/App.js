@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import './App.css'; // Import the new CSS file
+import './App.css';
 
 // --- Tone.js Audio Library ---
-// This script is necessary for the synthesizer to function.
 const toneScript = document.createElement('script');
 toneScript.src = "https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js";
 toneScript.async = true;
@@ -483,76 +482,6 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-lime-400 flex flex-col items-center justify-center p-4 font-vt323">
-      <style>
-        {`
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
-        .font-press-start { font-family: 'Press Start 2P', cursive; }
-        .font-vt323 { font-family: 'VT323', monospace; }
-
-        .pixel-border {
-          border: 2px solid lime;
-          box-shadow: 0 0 5px lime, inset 0 0 5px lime;
-        }
-
-        .pixel-button {
-          background-color: #00ff00; /* Neon Green */
-          color: #000;
-          border: 2px solid #00ff00;
-          box-shadow: 3px 3px 0 #00aa00, 5px 5px 0 #005500;
-          transition: all 0.1s ease-in-out;
-        }
-        .pixel-button:hover {
-          background-color: #00ee00;
-          box-shadow: 1px 1px 0 #00aa00, 2px 2px 0 #005500;
-          transform: translate(2px, 2px);
-        }
-        .pixel-button:active {
-          background-color: #00dd00;
-          box-shadow: 0 0 0 #00aa00, 0 0 0 #005500;
-          transform: translate(5px, 5px);
-        }
-        .pixel-button:disabled {
-          background-color: #555;
-          color: #999;
-          box-shadow: 3px 3px 0 #333, 5px 5px 0 #111;
-          cursor: not-allowed;
-        }
-
-        .pixel-input, .pixel-select, .pixel-textarea {
-          background-color: #1a1a1a;
-          border: 1px solid lime;
-          box-shadow: inset 0 0 3px lime;
-          color: lime;
-          padding: 8px;
-          font-size: 1rem;
-          appearance: none; /* Remove default dropdown arrow */
-        }
-        
-        .pixel-select {
-            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300FF00%22%20d%3D%22M287%2C197.3L159.2%2C69.5c-3.1-3.1-8.2-3.1-11.3%2C0l-127.8%2C127.8c-3.1%2C3.1-3.1%2C8.2%2C0%2C11.3s8.2%2C3.1%2C11.3%2C0l122.2-122.2l122.2%2C122.2c3.1%2C3.1%2C8.2%2C3.1%2C11.3%2C0S290.1%2C200.4%2C287%2C197.3z%22%2F%3E%3C%2Fsvg%3E');
-            background-repeat: no-repeat;
-            background-position: right 0.7em top 50%, 0 0;
-            background-size: 0.65em auto, 100%;
-        }
-
-        .pixel-box {
-          background-color: #1a1a1a;
-          border: 2px solid lime;
-          box-shadow: 0 0 10px rgba(0,255,0,0.5), inset 0 0 5px rgba(0,255,0,0.3);
-        }
-        
-        @keyframes pulse-green {
-            0% { background-color: #39FF14; box-shadow: 0 0 5px #39FF14; }
-            50% { background-color: #90EE90; box-shadow: 0 0 20px #39FF14; }
-            100% { background-color: #39FF14; box-shadow: 0 0 5px #39FF14; }
-        }
-        
-        .perfect-tune {
-            animation: pulse-green 1s infinite;
-        }
-        `}
-      </style>
-
       <div className="pixel-box p-8 rounded-none w-full max-w-2xl text-center mb-8">
         <h1 className="text-5xl font-press-start mb-2 text-cyan-400 drop-shadow-[0_0_8px_rgba(0,255,255,0.7)]">
           Collabor8
