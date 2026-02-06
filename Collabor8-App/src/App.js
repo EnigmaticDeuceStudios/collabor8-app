@@ -348,7 +348,12 @@ const App = () => {
         setSuggestions('Collabor8 is thinking...');
 
         const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-        const apiKey = ""; 
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+        if (!apiKey) {
+            setSuggestions('Gemini API key is not configured. Please set REACT_APP_GEMINI_API_KEY in your .env file.');
+            setLoading(false);
+            return;
+        }
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
         try {
@@ -425,7 +430,12 @@ const App = () => {
       `;
       
       const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-      const apiKey = ""; 
+      const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+      if (!apiKey) {
+          setAiCritique('Gemini API key is not configured. Please set REACT_APP_GEMINI_API_KEY in your .env file.');
+          setIsAiRefining(false);
+          return;
+      }
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
       try {
