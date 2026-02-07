@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import './index.css'; // Import the main CSS file
-
-// --- Tone.js Audio Library ---
-const toneScript = document.createElement('script');
-toneScript.src = "https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js";
-toneScript.async = true;
-document.head.appendChild(toneScript);
-
+// eslint-disable-next-line no-unused-vars
+import Tone from 'tone/build/Tone.js';
+import './index.css';
+import {
+  getChordSuggestions,
+  getInspiration,
+  getLyricFeedback,
+  getArtistDiscovery,
+} from './mockAI';
 
 // --- Helper Component for Clickable Chords ---
 const ClickableChordSuggestion = ({ text, synthRef }) => {
@@ -17,21 +18,21 @@ const ClickableChordSuggestion = ({ text, synthRef }) => {
         const root = chordName.match(/^[A-G][b#]?/)[0];
         const quality = chordName.replace(root, '');
         const octave = 4;
-        
+
         const noteMap = {
             'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
         };
         const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-        
+
         const rootIndex = noteMap[root];
         if (rootIndex === undefined) return null;
 
         let intervals;
-        if (quality.startsWith('m') && !quality.startsWith('maj')) { // minor
+        if (quality.startsWith('m') && !quality.startsWith('maj')) {
             intervals = [0, 3, 7];
-        } else if (quality.includes('7')) { // dominant 7th
+        } else if (quality.includes('7')) {
              intervals = [0, 4, 7, 10];
-        } else { // major
+        } else {
             intervals = [0, 4, 7];
         }
 
@@ -40,7 +41,7 @@ const ClickableChordSuggestion = ({ text, synthRef }) => {
 
     const playChord = async (chord) => {
         if (!synthRef.current) return;
-        if (window.Tone.context.state !== 'running') {
+        if (window.Tone && window.Tone.context.state !== 'running') {
             await window.Tone.start();
         }
         const notes = getChordNotes(chord);
@@ -52,7 +53,7 @@ const ClickableChordSuggestion = ({ text, synthRef }) => {
     return (
         <p className="text-lg text-gray-200">
             {parts.map((part, index) => {
-                if (index % 3 === 1 && part) { // It's a chord
+                if (index % 3 === 1 && part) {
                     return (
                         <button key={index} onClick={() => playChord(part)} className="bg-lime-800 text-lime-300 px-2 py-1 rounded-md mx-1 hover:bg-lime-700 transition-colors">
                             {part}
@@ -81,7 +82,7 @@ const GuitarTuner = () => {
     const lowPassFilterRef = useRef(null);
     const isInitialMount = useRef(true);
 
-    const notes = [
+    const notesRef = useRef([
         { name: 'E2', frequency: 82.41 }, { name: 'F2', frequency: 87.31 }, { name: 'F#2', frequency: 92.50 },
         { name: 'G2', frequency: 98.00 }, { name: 'G#2', frequency: 103.83 }, { name: 'A2', frequency: 110.00 },
         { name: 'A#2', frequency: 116.54 }, { name: 'B2', frequency: 123.47 }, { name: 'C3', frequency: 130.81 },
@@ -93,13 +94,13 @@ const GuitarTuner = () => {
         { name: 'E4', frequency: 329.63 }, { name: 'F4', frequency: 349.23 }, { name: 'F#4', frequency: 369.99 },
         { name: 'G4', frequency: 392.00 }, { name: 'G#4', frequency: 415.30 }, { name: 'A4', frequency: 440.00 },
         { name: 'A#4', frequency: 466.16 }, { name: 'B4', frequency: 493.88 }, { name: 'C5', frequency: 523.25 },
-    ].sort((a, b) => a.frequency - b.frequency);
+    ].sort((a, b) => a.frequency - b.frequency));
 
     const getClosestNote = useCallback((frequency) => {
-        return notes.reduce((prev, curr) =>
+        return notesRef.current.reduce((prev, curr) =>
             (Math.abs(curr.frequency - frequency) < Math.abs(prev.frequency - frequency) ? curr : prev)
         );
-    }, [notes]);
+    }, []);
 
     const calculatePitch = useCallback((spectrum, sampleRate) => {
         if (!analyserRef.current) return 0;
@@ -294,10 +295,10 @@ const GuitarTuner = () => {
 const App = () => {
   // --- UI State ---
   const [selectedMode, setSelectedMode] = useState('noteTuner');
-  
+
   // --- AI Chord Buddy State ---
   const [inputChords, setInputChords] = useState('');
-  const [songPart, setSongPart] = useState('Chorus'); 
+  const [songPart, setSongPart] = useState('Chorus');
   const [aiChordBuddySuggestions, setAiChordBuddySuggestions] = useState('Your AI suggestions will appear here.');
   const [isAiChordLoading, setIsAiChordLoading] = useState(false);
 
@@ -326,74 +327,49 @@ const App = () => {
 
   // --- Initialize Synthesizer ---
   useEffect(() => {
-    const initializeSynth = () => {
-        if (window.Tone && !synthRef.current) {
-            synthRef.current = new window.Tone.PolySynth(window.Tone.Synth, {
-                oscillator: { type: 'fatsawtooth' },
-                envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-            }).toDestination();
-        }
-    };
-    
     if (window.Tone) {
-        initializeSynth();
-    } else {
-        const script = document.querySelector('script[src*="tone"]');
-        if(script) script.addEventListener('load', initializeSynth);
+      synthRef.current = new window.Tone.PolySynth(window.Tone.Synth, {
+          oscillator: { type: 'fatsawtooth' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
+      }).toDestination();
     }
   }, []);
 
-  const getAiSuggestionsFromAPI = async (prompt, setLoading, setSuggestions) => {
-        setLoading(true);
-        setSuggestions('Collabor8 is thinking...');
-
-        const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-        const apiKey = ""; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-        try {
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const result = await response.json();
-
-            if (result.candidates && result.candidates.length > 0 &&
-                result.candidates[0].content && result.candidates[0].content.parts &&
-                result.candidates[0].content.parts.length > 0) {
-                const text = result.candidates[0].content.parts[0].text;
-                setSuggestions(text);
-            } else {
-                setSuggestions('Oops! Collabor8 couldn\'t come up with suggestions. Try again?');
-            }
-        } catch (error) {
-            console.error('Error fetching AI suggestions:', error);
-            setSuggestions('Network error or API issue. Check console for details.');
-        } finally {
-            setLoading(false);
-        }
-  }
-
-  const getAiChordSuggestions = () => {
+  const getAiChordSuggestionsHandler = async () => {
     if (!inputChords.trim()) {
       setAiChordBuddySuggestions('Please enter some chords first!');
       return;
     }
-    const prompt = `I have a chord progression: "${inputChords}". I need a new chord progression for the ${songPart} of my song that will musically complement it. Give me a few options and a brief, easy-going explanation for why they work.`;
-    getAiSuggestionsFromAPI(prompt, setIsAiChordLoading, setAiChordBuddySuggestions);
+    setIsAiChordLoading(true);
+    setAiChordBuddySuggestions('Collabor8 is thinking...');
+    try {
+      const result = await getChordSuggestions(inputChords, songPart);
+      setAiChordBuddySuggestions(result);
+    } catch (error) {
+      setAiChordBuddySuggestions('Something went wrong. Try again?');
+    } finally {
+      setIsAiChordLoading(false);
+    }
   };
 
-  const getAiInspiration = () => {
+  const getAiInspirationHandler = async () => {
     if (!inspirationTheme.trim()) {
         setAiInspiration('Please provide a theme or mood first.');
         return;
     }
-    const prompt = `Act as a creative muse for a songwriter. The user has provided a theme: "${inspirationTheme}". Generate a few creative sparks to inspire a song. Provide three distinct ideas in a list format: 1. A unique song title and a one-sentence concept. 2. A list of 3-5 vivid, sensory images or metaphors related to the theme. 3. A short, two-line story or character sketch to set a scene. Keep the tone cool and imaginative.`;
-    getAiSuggestionsFromAPI(prompt, setIsAiInspirationLoading, setAiInspiration);
-  }
+    setIsAiInspirationLoading(true);
+    setAiInspiration('Collabor8 is thinking...');
+    try {
+      const result = await getInspiration(inspirationTheme);
+      setAiInspiration(result);
+    } catch (error) {
+      setAiInspiration('Something went wrong. Try again?');
+    } finally {
+      setIsAiInspirationLoading(false);
+    }
+  };
 
-  const getAiFeedback = async () => {
+  const getAiFeedbackHandler = async () => {
       if (!lyricInput.trim()) {
           setAiCritique('Please paste your lyrics in the box first.');
           return;
@@ -403,78 +379,35 @@ const App = () => {
       setAiRefinedLyrics('');
       setSongReadiness({ status: 'Analyzing...', explanation: '' });
 
-      let personaPrompt = "You are a world-renowned songwriter, a hitmaker from the 50's to now, with experience in country, folk, and pop. You value timeless themes, strong storytelling, and classic song structures.";
-      if (aiPersona === 'Modern Hitmaker') {
-          personaPrompt = "You are a top-40 music producer and songwriter, known for writing hits for today's younger-gen artists like Olivia Rodrigo and Billie Eilish. You value direct, emotionally resonant lyrics, catchy hooks, and modern, conversational language."
-      }
-
-      const prompt = `${personaPrompt} The user has submitted lyrics for a song's ${refinerSongPart}. The intended rhyme scheme is ${rhymeScheme}. Analyze the following lyrics based on your persona's perspective.
-
-      Lyrics to analyze:
-      ---
-      ${lyricInput}
-      ---
-
-      Provide your response as a JSON object with the following structure:
-      {
-        "critique": "Your constructive feedback on the current version, highlighting strengths and areas for improvement based on the provided song part and rhyme scheme.",
-        "refinedLyrics": "Your rewritten, improved version of the lyrics. Make subtle but impactful changes to enhance the song's quality.",
-        "isReady": a boolean (true if the song is a potential hit, false if it needs more work),
-        "readinessExplanation": "A brief explanation for the 'isReady' status."
-      }
-      `;
-      
-      const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-      const apiKey = ""; 
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
       try {
-          const response = await fetch(apiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-          });
-          const result = await response.json();
-
-          if (result.candidates && result.candidates.length > 0 &&
-              result.candidates[0].content && result.candidates[0].content.parts &&
-              result.candidates[0].content.parts.length > 0) {
-              
-              let text = result.candidates[0].content.parts[0].text;
-              text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-              const parsedResponse = JSON.parse(text);
-              
-              setAiCritique(parsedResponse.critique);
-              setAiRefinedLyrics(parsedResponse.refinedLyrics);
-              setSongReadiness({
-                  status: parsedResponse.isReady ? 'Ready!' : 'Needs Work',
-                  explanation: parsedResponse.readinessExplanation
-              });
-              
-          } else {
-              setAiCritique('Oops! Collabor8 couldn\'t come up with feedback. Try again?');
-              setAiRefinedLyrics('');
-              setSongReadiness({ status: 'Error', explanation: 'No response from AI.' });
-          }
+        const result = await getLyricFeedback(lyricInput, refinerSongPart, rhymeScheme, aiPersona);
+        setAiCritique(result.critique);
+        setAiRefinedLyrics(result.refinedLyrics);
+        setSongReadiness({
+            status: result.isReady ? 'Ready!' : 'Needs Work',
+            explanation: result.readinessExplanation
+        });
       } catch (error) {
-          console.error('Error fetching AI feedback:', error);
-          setAiCritique('Network error or API issue. Check console for details.');
-          setAiRefinedLyrics('');
-          setSongReadiness({ status: 'Error', explanation: 'Could not connect to the AI.' });
+        setAiCritique('Something went wrong. Try again?');
+        setAiRefinedLyrics('');
+        setSongReadiness({ status: 'Error', explanation: 'Could not process feedback.' });
       } finally {
-          setIsAiRefining(false);
+        setIsAiRefining(false);
       }
-  }
+  };
 
-  const getArtistDiscovery = () => {
-    let prompt;
-    if(discoveryDecade === 'Modern') {
-        prompt = `I'm looking for new, up-and-coming artists in the ${discoveryGenre} genre. Give me a list of 3-5 artists to check out. For each artist, provide a one-sentence description of their sound.`;
-    } else {
-        prompt = `I'm exploring music from the ${discoveryDecade}. Give me a list of 3-5 influential artists from that decade in the ${discoveryGenre} genre. For each artist, provide a one-sentence description of their sound and why they were important.`;
+  const getArtistDiscoveryHandler = async () => {
+    setIsDiscoveryLoading(true);
+    setDiscoveryResults('Searching...');
+    try {
+      const result = await getArtistDiscovery(discoveryGenre, discoveryDecade);
+      setDiscoveryResults(result);
+    } catch (error) {
+      setDiscoveryResults('Something went wrong. Try again?');
+    } finally {
+      setIsDiscoveryLoading(false);
     }
-    getAiSuggestionsFromAPI(prompt, setIsDiscoveryLoading, setDiscoveryResults);
-  }
+  };
 
   const handleModeChange = (event) => {
     setSelectedMode(event.target.value);
@@ -500,10 +433,10 @@ const App = () => {
             onChange={handleModeChange}
           >
             <option value="noteTuner">Guitar Tuner</option>
-            <option value="aiChordBuddy">✨ AI Chord Buddy</option>
-            <option value="aiInspiration">✨ AI Inspiration</option>
-            <option value="aiRefiner">✨ Collabor8's Feedback</option>
-            <option value="artistDiscovery">✨ Artist Discovery</option>
+            <option value="aiChordBuddy">AI Chord Buddy</option>
+            <option value="aiInspiration">AI Inspiration</option>
+            <option value="aiRefiner">Collabor8's Feedback</option>
+            <option value="artistDiscovery">Artist Discovery</option>
           </select>
         </div>
 
@@ -528,7 +461,7 @@ const App = () => {
             ></textarea>
             <div className="flex items-center justify-center space-x-4 mb-4">
                 <label htmlFor="song-part-select" className="text-lg">I need chords for a:</label>
-                <select 
+                <select
                     id="song-part-select"
                     className="p-2 pixel-select"
                     value={songPart}
@@ -540,11 +473,11 @@ const App = () => {
                 </select>
             </div>
             <button
-              onClick={getAiChordSuggestions}
+              onClick={getAiChordSuggestionsHandler}
               disabled={isAiChordLoading}
               className="px-6 py-3 font-press-start text-sm rounded-none pixel-button"
             >
-              {isAiChordLoading ? 'Collabor8 is thinking...' : '✨ Get Suggestions'}
+              {isAiChordLoading ? 'Collabor8 is thinking...' : 'Get Suggestions'}
             </button>
             <div className="mt-6 p-4 pixel-box text-left whitespace-pre-wrap">
               <h3 className="text-xl font-press-start mb-2 text-cyan-300">Collabor8's Suggestions:</h3>
@@ -568,11 +501,11 @@ const App = () => {
               onChange={(e) => setInspirationTheme(e.target.value)}
             ></textarea>
             <button
-              onClick={getAiInspiration}
+              onClick={getAiInspirationHandler}
               disabled={isAiInspirationLoading}
               className="px-6 py-3 font-press-start text-sm rounded-none pixel-button"
             >
-              {isAiInspirationLoading ? 'Collabor8 is thinking...' : '✨ Get Inspiration'}
+              {isAiInspirationLoading ? 'Collabor8 is thinking...' : 'Get Inspiration'}
             </button>
             <div className="mt-6 p-4 pixel-box text-left whitespace-pre-wrap">
               <h3 className="text-xl font-press-start mb-2 text-cyan-300">Collabor8's Ideas:</h3>
@@ -596,7 +529,7 @@ const App = () => {
               onChange={(e) => setLyricInput(e.target.value)}
             ></textarea>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                 <select 
+                 <select
                     className="p-2 pixel-select"
                     value={refinerSongPart}
                     onChange={(e) => setRefinerSongPart(e.target.value)}
@@ -606,7 +539,7 @@ const App = () => {
                     <option>Bridge</option>
                     <option>Full Song</option>
                 </select>
-                 <select 
+                 <select
                     className="p-2 pixel-select"
                     value={rhymeScheme}
                     onChange={(e) => setRhymeScheme(e.target.value)}
@@ -621,7 +554,7 @@ const App = () => {
             </div>
              <div className="flex items-center justify-center space-x-4 mb-4">
                 <label htmlFor="persona-select" className="text-lg">Feedback from a:</label>
-                <select 
+                <select
                     id="persona-select"
                     className="p-2 pixel-select"
                     value={aiPersona}
@@ -632,11 +565,11 @@ const App = () => {
                 </select>
             </div>
             <button
-              onClick={getAiFeedback}
+              onClick={getAiFeedbackHandler}
               disabled={isAiRefining}
               className="px-6 py-3 font-press-start text-sm rounded-none pixel-button"
             >
-              {isAiRefining ? 'Collabor8 is thinking...' : '✨ Refine My Song'}
+              {isAiRefining ? 'Collabor8 is thinking...' : 'Refine My Song'}
             </button>
             <div className="mt-6 p-4 pixel-box text-left whitespace-pre-wrap">
               <h3 className="text-xl font-press-start mb-2 text-cyan-300">Collabor8's Critique:</h3>
@@ -652,7 +585,7 @@ const App = () => {
             </div>
           </div>
         )}
-        
+
         {selectedMode === 'artistDiscovery' && (
             <div className="p-6 pixel-box">
                 <h2 className="text-3xl font-press-start mb-4 text-blue-400 drop-shadow-[0_0_6px_rgba(96,165,250,0.7)]">
@@ -680,8 +613,8 @@ const App = () => {
                             <option>1950s</option>
                         </select>
                     </div>
-                    <button onClick={getArtistDiscovery} disabled={isDiscoveryLoading} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">
-                        {isDiscoveryLoading ? 'Searching...' : '✨ Find Artists'}
+                    <button onClick={getArtistDiscoveryHandler} disabled={isDiscoveryLoading} className="px-6 py-3 font-press-start text-sm rounded-none pixel-button">
+                        {isDiscoveryLoading ? 'Searching...' : 'Find Artists'}
                     </button>
                 </div>
                 <div className="mt-6 p-4 pixel-box text-left whitespace-pre-wrap">
